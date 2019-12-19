@@ -5,6 +5,8 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
+from tensorflow.keras.layers import LSTMCell
+
 
 class Transformer(object):
   '''
@@ -12,7 +14,7 @@ class Transformer(object):
   Output = [d]
   '''
   def __init__(self, input_size, output_size):
-    self.W = tf.Variable(tf.truncated_normal([input_size, output_size]))
+    self.W = tf.Variable(tf.random.truncated_normal([input_size, output_size]))
 
   def __call__(self, val):
     return tf.nn.relu(tf.matmul(val, self.W))
@@ -24,10 +26,10 @@ class Join(object):
   Output = [d]
   '''
   def __init__(self, d):
-    self.W = tf.Variable(tf.truncated_normal([2 * d, d]))
+    self.W = tf.Variable(tf.random.truncated_normal([2 * d, d]))
 
   def __call__(self, left, right):
-    return tf.nn.relu(tf.matmul(tf.concat(1, [left, right]), self.W))
+    return tf.nn.relu(tf.matmul(tf.concat([left, right],1), self.W))
 
 
 class Search(object):
@@ -36,10 +38,10 @@ class Search(object):
   Output = [1]
   '''
   def __init__(self, d, l):
-    self.W = tf.Variable(tf.truncated_normal([d + l, 1]))
+    self.W = tf.Variable(tf.random.truncated_normal([d + l, 1]))
 
   def __call__(self, h, control):
-    return tf.nn.sigmoid(tf.matmul(tf.concat(1, [h, control]), self.W))
+    return tf.nn.sigmoid(tf.matmul(tf.concat([h, control],1), self.W))
 
 
 class Write(object):
@@ -48,11 +50,11 @@ class Write(object):
   Output = [d]
   '''
   def __init__(self, d, l):
-    self.H = tf.Variable(tf.truncated_normal([d + l, d]))
-    self.T = tf.Variable(tf.truncated_normal([d + l, 1]))
+    self.H = tf.Variable(tf.random.truncated_normal([d + l, d]))
+    self.T = tf.Variable(tf.random.truncated_normal([d + l, 1]))
 
   def __call__(self, h, control):
-    data = tf.concat(1, [h, control])
+    data = tf.concat([h, control],1)
     candidate = tf.nn.sigmoid(tf.matmul(data, self.H))
     update = tf.nn.sigmoid(tf.matmul(data,  self.T))
     return update * candidate + (1 - update) * h
@@ -80,7 +82,6 @@ class HAMTree(object):
     self.join = self.ops.join
     self.search = self.ops.search
     self.write = self.ops.write
-    ##
     self.root = None
     self.leaves = None
     self.nodes = None
@@ -92,13 +93,7 @@ class HAMTree(object):
     # Ensure that the total number of leaves is a power of two
     depth = np.log(total_leaves) / np.log(2)
     assert depth.is_integer(), 'The total leaves must be a power of two'
-    ###
-    # Create all the leaf nodes and then combine them until only one exists
-    # A B C D
-    # C D [A B]
-    # [A B] [C D]
-    # [[A B] [C D]]
-    ###
+
     queue = [HAMNode(tree=self, left=None, right=None) for leaf in xrange(total_leaves)]
     self.leaves = [leaf for leaf in queue]
     self.nodes = [leaf for leaf in queue]
@@ -146,7 +141,7 @@ class HAMNode(object):
       value = self.right.retrieve_and_update(control, attention=attention * move_right)
       value += self.left.retrieve_and_update(control, attention=attention * (1 - move_right))
     else:
-      value = attention * self.value
+      value = attention * tf.cast(self.value,tf.float32)
     ###
     # Update the values of the tree
     if self.left and self.right:
@@ -154,6 +149,42 @@ class HAMNode(object):
     else:
       self.h = attention * self.tree.write(self.h, control) + (1 - attention) * self.h
     return value
+
+
+class HamLSTMCell(LSTMCell):
+
+  def __init__(self,tree_size,*args, **kwargs):
+
+    self.tree_size=tree_size
+    super(HamLSTMCell, self).__init__(*args, **kwargs)
+
+  def build(self, input_shape):
+    super(HamLSTMCell,self).build(input_shape)
+    print(input_shape)
+    self.n=input_shape[1] 
+    self.embed_size=input_shape[2]
+    self.ops = HAMOperations(self.embed_size, self.tree_size,self.units)
+    self.tree = HAMTree(ham_ops=self.ops)
+    self.tree.construct(self.n)
+
+
+  def call(self, inputs, states):  
+
+    h,c = states
+  
+    values = [tf.squeeze(x, [1]) for x in tf.split(inputs, self.n,1)]
+    for i, val in enumerate(values):
+      self.tree.leaves[i].embed(val)
+
+    self.tree.refresh()  
+
+    tree_out=self.tree.get_output(h)
+
+    output, next_state=super(HamLSTMCell,self).call(tree_out, states,training=True)
+
+    return output,next_state
+
+
 
 if __name__ == '__main__':
   ham_ops = HAMOperations(1, 2, 3)
