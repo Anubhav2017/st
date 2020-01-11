@@ -28,10 +28,10 @@ y = np.loadtxt(y_file, delimiter=',', dtype=int)
 
 x = np.expand_dims(x, axis=2)
 
-YY = []
-for y_ in y:
-    YY.append(to_categorical(y_))
-YY = np.asarray(YY)
+# YY = []
+# for y_ in y:
+#     YY.append(to_categorical(y_))
+YY = y
 
 x_train = x[:split_at]
 
@@ -62,7 +62,7 @@ except IOError:
     print("no weights file, starting anew.")
 
 model.compile(optimizer='rmsprop',
-              loss='categorical_crossentropy',
+              loss='MeanSquaredError',
               metrics=['accuracy'])
 
 print('training and saving model weights each epoch...')

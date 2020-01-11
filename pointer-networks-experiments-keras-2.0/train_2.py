@@ -28,7 +28,7 @@ weights_file_1 = 'model_weights_1/model_weights_{}_steps_{}.hdf5'.format(n_steps
 x = np.loadtxt(x_file, delimiter=',', dtype=int)
 y = np.loadtxt(y_file, delimiter=',', dtype=int)
 
-x = np.expand_dims(x, axis=2)
+#x = np.expand_dims(x, axis=2)
 
 YY = []
 for y_ in y:
@@ -52,12 +52,12 @@ assert (n_steps == x.shape[1])
 
 print("building model...")
 
-main_input = Input(shape=(None, n_steps), name='main_input')
+main_input = Input(shape=(n_steps,1), name='main_input')
 
-#encoder = LSTM(units=hidden_size, return_sequences=True, name="encoder")(main_input)
+encoder = LSTM(units=hidden_size, return_sequences=True, name="encoder")(main_input)
 
 decoder = PointerLSTM(hidden_size, units=hidden_size, name="decoder")
-decoder_outputs,_,_ = decoder(main_input)
+decoder_outputs,_,_ = decoder(encoder)
 
 model = Model(inputs=main_input, outputs=decoder)
 
